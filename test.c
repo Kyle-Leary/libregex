@@ -7,6 +7,10 @@ void match(char **lines, int n_lines, char *pattern) {
   printf("\n" ANSI_BG_GREEN ANSI_BLACK "\t Matching against '%s' " ANSI_RESET
          "\n\n",
          pattern);
+
+  REComp r;
+  re_compile(&r, pattern);
+
   for (int i = 0; i < n_lines; i++) {
     char *line = lines[i];
     int num_matches = 0;
@@ -21,7 +25,7 @@ void match(char **lines, int n_lines, char *pattern) {
     // the caller allocates their buffer based on how many matches they think
     // the string will cap out at.
     Match matches[16] = {0};
-    num_matches = get_matches(line, pattern, matches);
+    num_matches = re_get_matches(line, &r, matches);
 
     if (num_matches) {
       PRINT_LINE(GREEN);
@@ -56,10 +60,10 @@ int main(int argc, char *argv[]) {
   TESTCOMP("a{2,}");
   TESTCOMP("a{2}");
 
-  // match((char *[]){"hellow", "hi", "hellowrld"}, 3, "hello");
+  match((char *[]){"hellow", "hi", "hellowrld"}, 3, "hello");
   // match((char *[]){"", "wwhello", "hellowww", "world", "hello"}, 5,
   // "^hello$");
-  //
+
   // // 1. Test for '^' and '$'
   // match((char *[]){"hello", "hello ", " hello", " hello "}, 4,
   // "^hello$");

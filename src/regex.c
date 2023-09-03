@@ -370,30 +370,30 @@ int re_get_matches(const char *line, REComp *compiled, Match *dest) {
 
   int num_matches = 0;
 
-  { // handle the opening and closing ^ and $.
-    if (_pattern[0] == '^') {
-      if (_pattern[1] != line[0]) {
-        // if the ^ doesn't immediately match, it'll never match.
-        return 0;
-      } else {
-        // otherwise, skip the ^ and match the rest like normal.
-        _pattern++;
-        _pattern_len--;
-      }
-    }
-
-    // basically do the same thing backwards as the ^ for the $.
-    if (_pattern[_pattern_len - 1] == '$') {
-      if (_pattern[_pattern_len - 2] != line[line_copy_len - 1]) {
-        return 0;
-      } else {
-        // in this case, discarding just means null-terming the _pattern
-        // early.
-        _pattern[_pattern_len - 1] = '\0';
-        _pattern_len--;
-      }
-    }
-  }
+  // { // handle the opening and closing ^ and $.
+  //   if (_pattern[0] == '^') {
+  //     if (_pattern[1] != line[0]) {
+  //       // if the ^ doesn't immediately match, it'll never match.
+  //       return 0;
+  //     } else {
+  //       // otherwise, skip the ^ and match the rest like normal.
+  //       _pattern++;
+  //       _pattern_len--;
+  //     }
+  //   }
+  //
+  //   // basically do the same thing backwards as the ^ for the $.
+  //   if (_pattern[_pattern_len - 1] == '$') {
+  //     if (_pattern[_pattern_len - 2] != line[line_copy_len - 1]) {
+  //       return 0;
+  //     } else {
+  //       // in this case, discarding just means null-terming the _pattern
+  //       // early.
+  //       _pattern[_pattern_len - 1] = '\0';
+  //       _pattern_len--;
+  //     }
+  //   }
+  // }
 
   Match m;
   m.start = 0; // init by trying to match with the first possible character.
@@ -402,242 +402,11 @@ int re_get_matches(const char *line, REComp *compiled, Match *dest) {
   int _pattern_idx = 0;
   int line_idx = 0;
 
-  char *_pattern_sections[16];
-  _pattern_sections[0] = strtok(_pattern, "|");
-  int i = 0;
-  while ((i++, _pattern_sections[i] = strtok(NULL, "|"))) {
-  }
-
-  // then, the main loop through the stable copied line.
-  while (line_idx < line_copy_len) {
-
-    // if we're at the end of the pattern, we've successfully matched with the
-    // line once.
-#define TRY_MATCH()                                                            \
-  {                                                                            \
-    if (_pattern_idx == _pattern_len) {                                        \
-      m.end = line_idx;                                                        \
-      memcpy(&dest[num_matches], &m, sizeof(Match));                           \
-      num_matches++;                                                           \
-      m.start = line_idx + 1;                                                  \
-    }                                                                          \
-  }
-
-    // without the TRY_MATCH()
-#define JUST_NEW_PAT_CH()                                                      \
-  {                                                                            \
-    _pattern_idx++;                                                            \
-    pat_ch = _pattern[_pattern_idx];                                           \
-  }
-
-#define NEW_PAT_CH()                                                           \
-  {                                                                            \
-    _pattern_idx++;                                                            \
-    pat_ch = _pattern[_pattern_idx];                                           \
-    TRY_MATCH();                                                               \
-  }
-
-#define FULL_BUMP()                                                            \
-  {                                                                            \
-    NEW_PAT_CH();                                                              \
-    NEW_LINE_CH();                                                             \
-  }
-
-    // there's been a contradiction between the rule and the line. try to match
-    // from the beginning.
-#define FAIL()                                                                 \
-  {                                                                            \
-    _pattern_idx = 0;                                                          \
-    NEW_LINE_CH();                                                             \
-    m.start = line_idx;                                                        \
-    continue;                                                                  \
-  }
-
-    // get the next character in the pattern.
-#define PAT_PEEK() (_pattern[_pattern_idx + 1])
-
-#define NEW_LINE_CH()                                                          \
-  {                                                                            \
-    line_idx++;                                                                \
-    line_ch = line[line_idx];                                                  \
-  }
-
-    char pat_ch = _pattern[_pattern_idx];
-    char line_ch = line[line_idx];
-
-    switch (pat_ch) {
-    case '\\': {
-      // escape the metacharacter.
-      // literally skip the \ and treat the next char like a normal ASCII char,
-      // comparing it against the target line.
-      _pattern_idx++;
-      pat_ch = _pattern[_pattern_idx];
-      goto normal_char_compare;
-    } break;
-
-    case '.': {
-      // the . matches with anything that isn't a newline.
-      if (line_ch != '\n') {
-        NEW_PAT_CH();
-        NEW_LINE_CH();
-      } else {
-        FAIL();
-      }
-    } break;
-
-      // parse a character class. this is simpler since char classes can't be
-      // nested inside eachother.
-    case '[': {
-      // first, parse out all the stuff inside.
-      char class_buf[32];
-      int cb_len = 0;
-      JUST_NEW_PAT_CH();
-      while (pat_ch != ']') {
-        class_buf[cb_len] = pat_ch;
-        cb_len++;
-        JUST_NEW_PAT_CH();
-      }
-      JUST_NEW_PAT_CH(); // pop past the last ] in the char class as well.
-
-      // then, handle the class_buf on its own, matching against the current
-      // line ch state.
-      class_buf[cb_len] = '\0';
-
-      char *_class = class_buf;
-
-      int is_complement = 0;
-      if (_class[0] == '^') {
-        // then we're actually matching against the complement of this
-        // character class.
-        is_complement = 1;
-        _class++; // discard the '^' after we've acknowledged it.
-      }
-
-      // check each parsed character class against the current line ch, and fail
-      // if we can't match a single one.
-      while (_class[0] != '\0') {
-        char start = _class[0];
-        char end = _class[2];
-        if (IS_BETWEEN(line_ch, MIN(start, end), MAX(start, end))) {
-          // we've passed.
-          if (is_complement) {
-            // flip the result, we haven't passed.
-          } else {
-            TRY_MATCH();
-            NEW_LINE_CH();
-            // use goto end_of_loop; since break; here would only break out of
-            // the while loop we're in locally.
-            goto end_of_loop; // we've bumped the pointer to the next
-                              // character, and we're ready for the next loop
-                              // iteration.
-          }
-        } else {
-          if (is_complement) {
-            TRY_MATCH();
-            NEW_LINE_CH();
-            goto end_of_loop;
-          } else {
-          }
-        }
-        _class += 3;
-      }
-
-      // if we don't pass in a single of the character classes, just fail.
-      FAIL();
-    } break;
-
-    default: {
-    normal_char_compare : {}
-
-      // in ?, + and *, the metachar comes after the rule. so, we need to do
-      // this right here in the normal char comparison default switch, rather
-      // than in the main switch.
-      switch (PAT_PEEK()) {
-      case '?': {
-        if (pat_ch == line_ch) {
-          // eat the next ch in the line if it happens to match.
-          NEW_LINE_CH();
-        }
-        // no matter what, X? will pass.
-        NEW_PAT_CH();
-        NEW_PAT_CH();
-      } break;
-
-      case '+': {
-        if (pat_ch != line_ch) {
-          FAIL();
-        }
-        while (pat_ch == line_ch) {
-          NEW_LINE_CH();
-        }
-        NEW_PAT_CH();
-        NEW_PAT_CH();
-      } break;
-
-      case '{': { // parse a numeric modifier on a character/class.
-
-        JUST_NEW_PAT_CH(); // bump pat_ch into n, the first number of the
-                           // modifier.
-
-        /* three cases:
-         * 1) {n,m} - match anywhere from n to m instances.
-         * 2) {n} - exactly n.
-         * 3) {n,} - at least n.
-         * */
-
-        if (PAT_PEEK() == ',') {
-          // either 1) or 3).
-        } else {
-          // case 2).
-          int to_match = CH_TO_INT(pat_ch);
-          for (int i = 0; i < to_match; i++) {
-          }
-        }
-
-        // then, eat the }.
-        JUST_NEW_PAT_CH();
-        TRY_MATCH();
-        NEW_LINE_CH();
-
-      } break;
-
-      case '*': {
-        // the same, except there's no failing mechanism like in '+'.
-        while (pat_ch == line_ch) {
-          // not actually moving in the pattern, just keep matching the
-          // line.
-          NEW_LINE_CH();
-        }
-        NEW_PAT_CH();
-        NEW_PAT_CH();
-      } break;
-
-      default: { // if it's nothing special, then this is truly just a normal
-                 // match.
-
-        // we've matched with a non-metacharacter.
-        // compare ASCII codes and handle it normally.
-        if (pat_ch == line_ch) {
-          FULL_BUMP();
-        } else {
-          FAIL();
-        }
-
-      } break;
-      }
-
-    } break;
-    }
-
-  end_of_loop : {}
-
-#undef TRY_MATCH
-#undef FULL_BUMP
-#undef FAIL
-#undef NEW_PAT_CH
-#undef NEW_LINE_CH
-#undef PAT_PEEK
-  }
+  // char *_pattern_sections[16];
+  // _pattern_sections[0] = strtok(_pattern, "|");
+  // int i = 0;
+  // while ((i++, _pattern_sections[i] = strtok(NULL, "|"))) {
+  // }
 
   return num_matches;
 }
