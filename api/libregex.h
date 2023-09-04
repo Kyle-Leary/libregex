@@ -5,6 +5,11 @@ typedef enum ObjType {
   OBJ_DOT,
   OBJ_CLASS,
 
+  // entire regexes can be used as objects. think about this as:
+  // (a+b*){2-3}
+  // where the {2-3} modifier has been applied to the (a+b*) object.
+  OBJ_SUBREGEX,
+
   OBJ_COUNT,
 } ObjType;
 
@@ -23,11 +28,14 @@ typedef struct Class {
   };
 } Class;
 
+typedef struct REComp REComp;
+
 typedef struct Obj {
   ObjType type;
   union {
     char ch;
     Class class;
+    REComp *sub_regex;
   } data;
 } Obj;
 
@@ -70,6 +78,8 @@ typedef struct Pair {
 typedef struct REComp {
   Pair pairs[MAX_PAIRS];
   int num_pairs;
+  int has_caret;  // ^ at the beginning of the pattern.
+  int has_dollar; // $ at the end of the pattern.
 } REComp;
 
 typedef struct Match {
@@ -82,5 +92,5 @@ typedef struct Match {
 // descriptions of the matches.
 int re_get_matches(const char *line, REComp *compiled, Match *dest);
 
-void re_compile(REComp *dest, const char *pattern_static);
+REComp *re_compile(const char *pattern_static);
 void re_debug_print(REComp *recomp);

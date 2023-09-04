@@ -12,15 +12,32 @@
   ((IS_BETWEEN(ch, 'A', 'Z') || IS_BETWEEN(ch, 'a', 'z') ||                    \
     IS_BETWEEN(ch, '0', '9')))
 
-void re_compile(REComp *dest, const char *pattern_static) {
-  // recomp constructor-type setup.
-  dest->num_pairs = 0;
+// we need to allocate this since we'll call this function recursively.
+// we can't have the caller allocate all the recursive REComps ahead of time,
+// that would be over-complicated. just calloc each REComp as we make it.
+REComp *re_compile(const char *pattern_static) {
+  REComp *dest = calloc(1, sizeof(REComp));
 
   // make a copy so that we don't segfault modifying a potentially static .data
   // string.
   int len = strlen(pattern_static);
-  char pattern[len];
-  memcpy(pattern, pattern_static, len);
+  char pattern_copied[len];
+  memcpy(pattern_copied, pattern_static, len);
+  char *pattern = pattern_copied;
+
+  // handle the opening and closing ^ and $.
+  dest->has_caret = (pattern[0] == '^');
+  dest->has_dollar = (pattern[len - 1] == '$');
+
+  // ignore these characters in the compilation if they're in the regex pattern.
+  if (dest->has_dollar) {
+    pattern[len - 1] = '\0';
+    len--;
+  }
+  if (dest->has_caret) {
+    pattern++;
+    len--;
+  }
 
   int idx = 0;
   char pat_ch = pattern[idx];
@@ -40,6 +57,26 @@ void re_compile(REComp *dest, const char *pattern_static) {
     case '.': {
       o.type = OBJ_DOT;
       NEXT_CHAR();
+    } break;
+
+      // wrap the expression in () to make a regex as a subobject.
+    case '(': {
+      o.type = OBJ_SUBREGEX;
+
+      // some sort of class.
+      char subobj_buf[128];
+      int so_len = 0;
+      NEXT_CHAR();
+      while (pat_ch != ']') {
+        subobj_buf[so_len] = pat_ch;
+        so_len++;
+        NEXT_CHAR();
+      }
+      NEXT_CHAR();
+
+      subobj_buf[so_len] = '\0';
+
+      o.data.sub_regex = re_compile(subobj_buf);
     } break;
 
     case '[': {
@@ -99,76 +136,74 @@ void re_compile(REComp *dest, const char *pattern_static) {
     }
 
     // then, parse the modifier at the cursor.
-    if (IS_ALNUM(pat_ch) || pat_ch == '[') {
-      // there's an object right after the last object, which means that there's
-      // no modifier.
-      m.type = MOD_NONE;
-    } else {
-      // else, it's a real modifier and we should find out which.
-      switch (pat_ch) {
-      case '*': {
-        m.type = MOD_STAR;
+    // else, it's a real modifier and we should find out which.
+    switch (pat_ch) {
+    case '*': {
+      m.type = MOD_STAR;
+      NEXT_CHAR();
+    } break;
+    case '+': {
+      m.type = MOD_PLUS;
+      NEXT_CHAR();
+    } break;
+    case '?': {
+      m.type = MOD_QUESTION;
+      NEXT_CHAR();
+    } break;
+
+    case '{': {
+
+      NEXT_CHAR(); // skip past the first {
+
+      /* three cases:
+       * 1) {n,m} - match anywhere from n to m instances.
+       * 2) {n} - exactly n.
+       * 3) {n,} - at least n.
+       * */
+
+      // no matter what, we're on n right now. parse it for the range.
+      // TODO: make this proper int parsing and not just the char coercion
+      // from ASCII.
+      int n_num = CH_TO_INT(pat_ch);
+
+      NEXT_CHAR();
+
+      if (pat_ch == ',') {
+
+        // either 1) or 3).
+
         NEXT_CHAR();
-      } break;
-      case '+': {
-        m.type = MOD_PLUS;
-        NEXT_CHAR();
-      } break;
-      case '?': {
-        m.type = MOD_QUESTION;
-        NEXT_CHAR();
-      } break;
 
-      case '{': {
+        if (pat_ch == '}') {
+          // 3)
+          m.type = MOD_N_;
 
-        NEXT_CHAR(); // skip past the first {
+          m.range_data.n = n_num;
+        } else {
 
-        /* three cases:
-         * 1) {n,m} - match anywhere from n to m instances.
-         * 2) {n} - exactly n.
-         * 3) {n,} - at least n.
-         * */
+          // 1)
+          m.type = MOD_N_M;
 
-        // no matter what, we're on n right now. parse it for the range.
-        // TODO: make this proper int parsing and not just the char coercion
-        // from ASCII.
-        int n_num = CH_TO_INT(pat_ch);
+          int m_num = CH_TO_INT(pat_ch);
 
-        NEXT_CHAR();
-
-        if (pat_ch == ',') {
-
-          // either 1) or 3).
+          m.range_data.n_m.n = n_num;
+          m.range_data.n_m.m = m_num;
 
           NEXT_CHAR();
-
-          if (pat_ch == '}') {
-            // 3)
-            m.type = MOD_N_;
-
-            m.range_data.n = n_num;
-          } else {
-
-            // 1)
-            m.type = MOD_N_M;
-
-            int m_num = CH_TO_INT(pat_ch);
-
-            m.range_data.n_m.n = n_num;
-            m.range_data.n_m.m = m_num;
-
-            NEXT_CHAR();
-          }
-
-        } else {
-          // case 2).
-          m.type = MOD_N;
-          m.range_data.n = n_num;
         }
 
-        NEXT_CHAR(); // skip past the last }
-      } break;
+      } else {
+        // case 2).
+        m.type = MOD_N;
+        m.range_data.n = n_num;
       }
+
+      NEXT_CHAR(); // skip past the last }
+    } break;
+
+    default: {
+      m.type = MOD_NONE;
+    } break;
     }
 
     { // construct and append the pair from the parsed object and modifier.
@@ -181,9 +216,11 @@ void re_compile(REComp *dest, const char *pattern_static) {
   }
 
 #undef NEXT_CHAR
+
+  return dest;
 }
 
-char *_eat(Obj *o, char *line) {
+const char *_eat(Obj *o, const char *line) {
   if (line == NULL)
     return NULL;
 
@@ -240,6 +277,12 @@ char *_eat(Obj *o, char *line) {
 
   } break;
 
+  case OBJ_SUBREGEX: {
+    // ?? we don't have the parent's matches.
+    // re_get_matches(line, o->data.sub_regex, );
+    return NULL;
+  } break;
+
   default: {
     return NULL;
   } break;
@@ -248,7 +291,7 @@ char *_eat(Obj *o, char *line) {
 
 // take in the point in the line, either return the new pointer to the line
 // position after the successful match, or NULL for an unsuccessful match.
-char *_pair(Pair *p, char *line) {
+const char *_pair(Pair *p, const char *line) {
   Mod m = p->mod;
   switch (m.type) {
   case MOD_NONE: {
@@ -267,7 +310,7 @@ char *_pair(Pair *p, char *line) {
     // just n_m without the limit that it stops when we reach the upper bound.
     int num_eaten = 0;
     for (;;) {
-      char *after = _eat(&p->obj, line);
+      const char *after = _eat(&p->obj, line);
       if (after) {
         line = after;
       } else {
@@ -295,7 +338,7 @@ char *_pair(Pair *p, char *line) {
         break;
       }
 
-      char *after = _eat(&p->obj, line);
+      const char *after = _eat(&p->obj, line);
       if (after) {
         line = after;
       } else {
@@ -314,7 +357,7 @@ char *_pair(Pair *p, char *line) {
 
   case MOD_PLUS: {
     // assert that there must be at least one match.
-    char *after = _eat(&p->obj, line);
+    const char *after = _eat(&p->obj, line);
     if (!after) {
       return NULL;
     } else {
@@ -335,7 +378,7 @@ char *_pair(Pair *p, char *line) {
 
   case MOD_STAR: {
     for (;;) { // _eat until we hit a NULL, then we're done.
-      char *after = _eat(&p->obj, line);
+      const char *after = _eat(&p->obj, line);
       if (after) {
         line = after;
       } else {
@@ -348,7 +391,7 @@ char *_pair(Pair *p, char *line) {
 
   case MOD_QUESTION: {
     // try _eat, if it works that's good, if it doesn't that's fine too.
-    char *after = _eat(&p->obj, line);
+    const char *after = _eat(&p->obj, line);
     if (after) {
       line = after;
     }
@@ -363,50 +406,78 @@ char *_pair(Pair *p, char *line) {
 }
 
 int re_get_matches(const char *line, REComp *compiled, Match *dest) {
-  int line_copy_len = strlen(line);
-  char line_copy[line_copy_len];
-  memcpy(line_copy, line, line_copy_len);
-  char *_line = line_copy;
-
+  int line_len = strlen(line);
   int num_matches = 0;
-
-  // { // handle the opening and closing ^ and $.
-  //   if (_pattern[0] == '^') {
-  //     if (_pattern[1] != line[0]) {
-  //       // if the ^ doesn't immediately match, it'll never match.
-  //       return 0;
-  //     } else {
-  //       // otherwise, skip the ^ and match the rest like normal.
-  //       _pattern++;
-  //       _pattern_len--;
-  //     }
-  //   }
-  //
-  //   // basically do the same thing backwards as the ^ for the $.
-  //   if (_pattern[_pattern_len - 1] == '$') {
-  //     if (_pattern[_pattern_len - 2] != line[line_copy_len - 1]) {
-  //       return 0;
-  //     } else {
-  //       // in this case, discarding just means null-terming the _pattern
-  //       // early.
-  //       _pattern[_pattern_len - 1] = '\0';
-  //       _pattern_len--;
-  //     }
-  //   }
-  // }
 
   Match m;
   m.start = 0; // init by trying to match with the first possible character.
 
-  // specifically the index into the pointer, not the buffer.
-  int _pattern_idx = 0;
-  int line_idx = 0;
+  int up_to = line_len;
+  if (compiled->has_caret) {
+    // only try to match the first pass.
+    up_to = 1;
+  }
 
-  // char *_pattern_sections[16];
-  // _pattern_sections[0] = strtok(_pattern, "|");
-  // int i = 0;
-  // while ((i++, _pattern_sections[i] = strtok(NULL, "|"))) {
-  // }
+  // try to match starting with each character in the string.
+  for (int c = 0; c < up_to; c++) {
+    const char *_line = &line[c];
+
+    for (int i = 0; i < compiled->num_pairs; i++) {
+      if (_line >= line + line_len) {
+        // we've run out of space to keep matching in the pattern. this is not a
+        // match.
+        goto fail;
+      }
+
+      Pair *p = &compiled->pairs[i];
+      _line = _pair(p, _line);
+
+      if (_line == NULL) {
+        goto fail;
+      }
+    }
+
+    goto succeed;
+
+  fail : {
+    m.start = c + 1;
+    continue;
+  }
+
+  succeed : {
+    // if we get all the way through the iterator, then match.
+    m.end = _line - line - 1;
+    // skip this if the end of the match isn't at the end of the line.
+    if (compiled->has_dollar && !(m.end == line_len - 1)) {
+      continue;
+    }
+    memcpy(&dest[num_matches], &m, sizeof(Match));
+    num_matches++;
+    // the next index we're going through on the next attempted match.
+    m.start = c + 1;
+    continue;
+  }
+  }
+
+full_break : {}
+
+  // this is kind of a hack, but we can filter out any matches after the fact
+  // that don't line up with the $ expectation.
+  if (compiled->has_dollar) {
+    Match buf[16];
+    int buf_len = 0;
+    for (int i = 0; i < num_matches; i++) {
+      Match *m = &dest[i];
+      if (m->end == line_len - 1) {
+        memcpy(&buf[buf_len], m, sizeof(Match));
+        buf_len++;
+      }
+    }
+
+    // then, copy in the temp filter match list into the real Match *dest one.
+    num_matches = buf_len;
+    memcpy(dest, buf, sizeof(Match) * buf_len);
+  }
 
   return num_matches;
 }
@@ -418,6 +489,8 @@ void re_debug_print(REComp *recomp) {
   }
 
   printf("REComp Debug Print Start:\n");
+  printf("\tHas dollar: %d\n\tHas caret: %d\n", recomp->has_dollar,
+         recomp->has_caret);
 
   for (int i = 0; i < recomp->num_pairs; i++) {
     Pair p = recomp->pairs[i];
@@ -496,4 +569,15 @@ void re_debug_print(REComp *recomp) {
   }
 
   printf("REComp Debug Print End.\n");
+}
+
+void re_free(REComp *r) {
+  for (int i = 0; i < r->num_pairs; i++) {
+    Pair *p = &r->pairs[i];
+    if (p->obj.type == OBJ_SUBREGEX) {
+      re_free(p->obj.data.sub_regex);
+    }
+  }
+
+  free(r);
 }
