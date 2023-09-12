@@ -54,6 +54,14 @@ REComp *re_compile(const char *pattern_static) {
 
     // first, parse the object at the cursor.
     switch (pat_ch) {
+      // escaped metacharacter (or normal character).
+    case '\\': {
+      NEXT_CHAR();
+      o.type = OBJ_CHAR;
+      o.data.ch = pat_ch;
+      NEXT_CHAR();
+    } break;
+
     case '.': {
       o.type = OBJ_DOT;
       NEXT_CHAR();
@@ -242,7 +250,6 @@ const char *_eat(Obj *o, const char *line) {
   case OBJ_DOT: {
     // matches with everything except for a newline.
     if (to_match != '\n') {
-      printf("matched dot with %c\n", to_match);
       return line + 1;
     } else {
       return NULL;

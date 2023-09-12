@@ -95,5 +95,7 @@ int main(int argc, char *argv[]) {
   match((char *[]){"\"\"", "\"hello  w orld \" world", "", "aaa"}, 4,
         "\"[a-z - ]*\"");
 
+  match((char *[]){"a))", ")a", "a()a", "aaa"}, 4, "\\)");
+
   return 0;
 }
