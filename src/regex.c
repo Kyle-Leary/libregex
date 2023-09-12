@@ -9,8 +9,8 @@
 #define CH_TO_INT(ch) (ch - 48)
 
 #define IS_ALNUM(ch)                                                           \
-  ((IS_BETWEEN(ch, 'A', 'Z') || IS_BETWEEN(ch, 'a', 'z') ||                    \
-    IS_BETWEEN(ch, '0', '9')))
+  ((IS_BETWEEN(ch, 'A', 'Z' + 1) || IS_BETWEEN(ch, 'a', 'z' + 1) ||            \
+    IS_BETWEEN(ch, '0', '9' + 1)))
 
 // we need to allocate this since we'll call this function recursively.
 // we can't have the caller allocate all the recursive REComps ahead of time,
@@ -270,7 +270,8 @@ const char *_eat(Obj *o, const char *line) {
       char *ranges = o->data.class.range_data.ranges;
       // else, use the ranges like usual.
       for (int i = 0; i < o->data.class.range_data.num_points; i += 2) {
-        if (IS_BETWEEN(to_match, ranges[i], ranges[i + 1])) {
+        // make it inclusive on the right.
+        if (IS_BETWEEN(to_match, ranges[i], ranges[i + 1] + 1)) {
           return line + 1;
         }
       }

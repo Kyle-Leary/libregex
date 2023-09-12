@@ -92,8 +92,8 @@ int main(int argc, char *argv[]) {
   // match((char *[]){"ac", "abc", "aabc", "aaabc"}, 4, "a(bc)*");
 
   // string lits
-  match((char *[]){"\"\"", "\"hello\" world", "", "aaa"}, 4,
-        "\"[a-zA-Z0-9]*\"");
+  match((char *[]){"\"\"", "\"hello  w orld \" world", "", "aaa"}, 4,
+        "\"[a-z - ]*\"");
 
   return 0;
 }
