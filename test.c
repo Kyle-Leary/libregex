@@ -91,5 +91,9 @@ int main(int argc, char *argv[]) {
   // 9. Test for sub-pattern capturing with (...)
   // match((char *[]){"ac", "abc", "aabc", "aaabc"}, 4, "a(bc)*");
 
+  // string lits
+  match((char *[]){"\"\"", "\"hello\" world", "", "aaa"}, 4,
+        "\"[a-zA-Z0-9]*\"");
+
   return 0;
 }

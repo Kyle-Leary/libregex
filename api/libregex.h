@@ -94,3 +94,4 @@ int re_get_matches(const char *line, REComp *compiled, Match *dest);
 
 REComp *re_compile(const char *pattern_static);
 void re_debug_print(REComp *recomp);
+void re_free(REComp *r);

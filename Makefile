@@ -20,7 +20,7 @@ build/%.o: src/%.c
 $(TEST): $(TARGET)
 	gcc -o $(TEST) test.c $(TARGET) $(CFLAGS)
 
-run: $(TEST)
+test: $(TEST)
 	./$(TEST)
 
 debug: $(TEST)

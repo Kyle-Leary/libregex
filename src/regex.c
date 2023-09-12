@@ -226,6 +226,10 @@ const char *_eat(Obj *o, const char *line) {
 
   char to_match = line[0];
 
+  // automatically fail on a NULL.
+  if (to_match == '\0')
+    return NULL;
+
   switch (o->type) {
   case OBJ_CHAR: {
     if (o->data.ch == to_match) {
@@ -237,7 +241,8 @@ const char *_eat(Obj *o, const char *line) {
 
   case OBJ_DOT: {
     // matches with everything except for a newline.
-    if (line[0] != '\n') {
+    if (to_match != '\n') {
+      printf("matched dot with %c\n", to_match);
       return line + 1;
     } else {
       return NULL;
@@ -262,7 +267,6 @@ const char *_eat(Obj *o, const char *line) {
       }
 
     } else {
-
       char *ranges = o->data.class.range_data.ranges;
       // else, use the ranges like usual.
       for (int i = 0; i < o->data.class.range_data.num_points; i += 2) {
